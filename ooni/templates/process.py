@@ -5,13 +5,14 @@ from ooni.utils import log
 
 
 class ProcessDirector(protocol.ProcessProtocol):
-    def __init__(self, d, finished=None, timeout=None, stdin=None):
+    def __init__(self, d, finished=None, timeout=None, stdin=None, readHook=None):
         self.d = d
         self.stderr = ""
         self.stdout = ""
         self.finished = finished
         self.timeout = timeout
         self.stdin = stdin
+        self.readHook = readHook
 
         self.timer = None
         self.exit_reason = None
@@ -19,6 +20,7 @@ class ProcessDirector(protocol.ProcessProtocol):
     def cancelTimer(self):
         if self.timeout and self.timer:
             self.timer.cancel()
+            self.timer = None
 
     def close(self, reason=None):
         self.reason = reason
@@ -26,7 +28,7 @@ class ProcessDirector(protocol.ProcessProtocol):
 
     def resetTimer(self):
         if self.timeout is not None:
-            if self.timer is not None:
+            if self.timer is not None and self.timer.active():
                 self.timer.cancel()
             self.timer = reactor.callLater(self.timeout,
                                            self.close,
@@ -58,10 +60,16 @@ class ProcessDirector(protocol.ProcessProtocol):
         self.stdout += data
         if self.shouldClose():
             self.close("condition_met")
+        if self.readHook:
+            self.readHook(self)
 
     def errReceived(self, data):
         log.debug("STDERR: %s" % data)
         self.stderr += data
+        if self.shouldClose():
+            self.close("condition_met")
+        if self.readHook:
+            self.readHook(self)
 
     def inConnectionLost(self):
         log.debug("inConnectionLost")
@@ -101,9 +109,14 @@ class ProcessTest(NetTestCase):
         }
         return result
 
-    def run(self, command, finished=None):
+    def run(self, command, finished=None, readHook=None):
         d = defer.Deferred()
         d.addCallback(self.processEnded, command)
-        processDirector = ProcessDirector(d, finished, self.timeout)
-        reactor.spawnProcess(processDirector, command[0], command)
+        # XXX make this into a class attribute
+        self.processDirector = ProcessDirector(d, finished, self.timeout, readHook=readHook)
+        reactor.spawnProcess(self.processDirector, command[0], command)
         return d
+
+    def stop(self):
+        log.debug("ProcessTest: stop")
+        self.processDirector.close()
