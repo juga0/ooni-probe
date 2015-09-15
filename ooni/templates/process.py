@@ -25,6 +25,7 @@ class ProcessDirector(protocol.ProcessProtocol):
     def close(self, reason=None):
         self.reason = reason
         self.transport.loseConnection()
+        self.transport.signalProcess('INT')
 
     def resetTimer(self):
         if self.timeout is not None:
@@ -114,7 +115,7 @@ class ProcessTest(NetTestCase):
         d.addCallback(self.processEnded, command)
         # XXX make this into a class attribute
         self.processDirector = ProcessDirector(d, finished, self.timeout, readHook=readHook)
-        reactor.spawnProcess(self.processDirector, command[0], command)
+        reactor.spawnProcess(self.processDirector, command[0], command, usePTY=usePTY, path=path, env=env)
         return d
 
     def stop(self):
