@@ -13,6 +13,8 @@ class ProcessDirector(protocol.ProcessProtocol):
         self.timeout = timeout
         self.stdin = stdin
         self.readHook = readHook
+        # is this overwritting a class attribute?
+        self.exited = False
 
         self.timer = None
         self.exit_reason = None
@@ -25,7 +27,8 @@ class ProcessDirector(protocol.ProcessProtocol):
     def close(self, reason=None):
         self.reason = reason
         self.transport.loseConnection()
-        self.transport.signalProcess('INT')
+        if not self.exited:
+            self.transport.signalProcess('INT')
 
     def resetTimer(self):
         if self.timeout is not None:
