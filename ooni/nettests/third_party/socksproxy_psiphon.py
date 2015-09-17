@@ -8,7 +8,7 @@ from txsocksx.http import SOCKS5Agent
 from ooni.errors import handleAllFailures, TaskTimedOut
 from ooni.utils import log
 from ooni.templates import process
-from ooni.templates.process import ProcessTest# , ProcessDirector
+from ooni.templates.process import ProcessTest,  ProcessDirector
 
 
 
@@ -67,10 +67,17 @@ connect(False)
         log.debug('executable file name: %s' % f.name)
         self.command = [f.name]
         log.debug('command: %s' % ''.join(self.command))
-        
+
     @defer.inlineCallbacks
     def test_psiphon(self):
         log.debug('PsiphonTest: test_psiphon')
+
+        # FIXME: do this in a twisted way
+        import os.path
+        if not os.path.exists(self.psiphonpath):
+            log.debug('psiphon path does not exists, is it installed')
+        else:
+            log.debug('psiphon path is correct')
 
         bootstrapped = defer.Deferred()
         def checkBootstrapped(pd):
@@ -84,7 +91,7 @@ connect(False)
         finished = self.run(self.command,  readHook=checkBootstrapped, usePTY=1,
                             path=self.psiphonpath,
                             env=dict(PYTHONPATH=self.psiphonpath))
-        
+
         def addResultToReport(result):
             log.debug("PsiphonTest: test_psiphon: addResultToReport")
             self.report['success'] = True
@@ -95,6 +102,9 @@ connect(False)
             self.report['success'] = False
 
         bootstrapped.addCallback(addResultToReport)
-        bootstrapped.addCallback(self.processDirector.close)
+        @bootstrapped.addCallback
+        def send_sigint(r):
+            self.processDirector.transport.signalProcess('INT')
+            self.processDirector.close()
         bootstrapped.addErrback(addFailureToReport)
         yield bootstrapped
