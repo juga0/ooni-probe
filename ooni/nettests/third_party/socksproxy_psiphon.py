@@ -84,12 +84,9 @@ connect(False)
         finished = self.run(self.command,  readHook=checkBootstrapped, usePTY=1,
                             path=self.psiphonpath,
                             env=dict(PYTHONPATH=self.psiphonpath))
-        serverEndpoint = TCP4ClientEndpoint(reactor, '127.0.0.1', 1080)
-        agent = SOCKS5Agent(reactor, proxyEndpoint=serverEndpoint)
         
         def addResultToReport(result):
             log.debug("PsiphonTest: test_psiphon: addResultToReport")
-            self.report['body'] = result
             self.report['success'] = True
 
         def addFailureToReport(failure):
@@ -97,15 +94,7 @@ connect(False)
             self.report['failure'] = handleAllFailures(failure)
             self.report['success'] = False
 
-        def doRequest(noreason):
-            log.debug("PsiphonTest: test_psiphon: doRequest")
-            log.debug("Doing HTTP request via sockx proxy for %s" % self.url)
-            request = agent.request("GET", self.url)
-            request.addCallback(readBody)
-            request.addCallback(addResultToReport)
-            request.addCallback(self.processDirector.close)
-            return request
-
-        bootstrapped.addCallback(doRequest)
+        bootstrapped.addCallback(addResultToReport)
+        bootstrapped.addCallback(self.processDirector.close)
         bootstrapped.addErrback(addFailureToReport)
         yield bootstrapped
