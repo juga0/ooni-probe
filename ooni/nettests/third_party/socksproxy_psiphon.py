@@ -18,6 +18,16 @@ class UsageOptions(usage.Options):
         ['url', 'u', None, 'Specify a single URL to test.'],
         ['psiphonpath', 'p', None, 'Specify psiphon python client path.'],]
 
+
+#    # TO USE PSIPHONPROCESSDIRECTOR
+#    # HAVE TO OVERWRITE COMPLETELY CLOSE!!!!!!!!!!!!!!!!!!!
+#class PsiphonProcessDirector(ProcessDirector):
+#    def close(self, reason=None):
+#        log.debug("ProcessDirector: close")
+#        self.reason = reason
+#        self.transport.loseConnection()
+
+
 class PsiphonTest(process.ProcessTest):
     
     """
@@ -36,9 +46,23 @@ class PsiphonTest(process.ProcessTest):
     timeout = 20
     usageOptions = UsageOptions
     #requiredOptions = ['url']
-    
+
+#    # TO USE PSIPHONPROCESSDIRECTOR
+#    # HAVE TO OVERWRITE COMPLETELY RUN!!!!!!!!!!!!!!!!!!!
+#    def run(self, command, finished=None,  readHook=None, usePTY=0, path=None, env={}):
+#        log.debug("PsiphonTesT: run")
+#        d = defer.Deferred()
+#        d.addCallback(self.processEnded, command)
+#        # XXX make this into a class attribute
+#        self.processDirector = PsiphonProcessDirector(d, finished, self.timeout,  readHook=readHook)
+#        reactor.spawnProcess(self.processDirector, command[0], command, usePTY=usePTY, path=path, env=env)
+#        return d
+
+
+
     def setUp(self):
         log.debug('PsiphonTest: setUp')
+        self.bootstrapped = defer.Deferred()
         if self.localOptions['url']:
             self.url = self.localOptions['url']
         else:
@@ -68,6 +92,13 @@ connect(False)
         self.command = [f.name]
         log.debug('command: %s' % ''.join(self.command))
 
+    def handleRead(self, stdout, stderr):
+        log.debug("PsiphonTest: test_psiphon: checkBootstrapped")
+        #if 'Your Psiphon is now running at ' in pd.stderr:
+        if 'Press Ctrl-C to terminate.' in self.processDirector.stdout:
+            if not self.bootstrapped.called:
+                self.bootstrapped.callback(None)
+
     @defer.inlineCallbacks
     def test_psiphon(self):
         log.debug('PsiphonTest: test_psiphon')
@@ -79,18 +110,10 @@ connect(False)
         else:
             log.debug('psiphon path is correct')
 
-        bootstrapped = defer.Deferred()
-        def checkBootstrapped(pd):
-            log.debug("PsiphonTest: test_psiphon: checkBootstrapped")
-            #if 'Your Psiphon is now running at ' in pd.stderr:
-            if 'Press Ctrl-C to terminate.' in pd.stdout or \
-                'Press Ctrl-C to terminate.' in pd.stderr:
-                if not bootstrapped.called:
-                    bootstrapped.callback(None)
         # TODO: check the path exixst before running
-        finished = self.run(self.command,  readHook=checkBootstrapped, usePTY=1,
-                            path=self.psiphonpath,
-                            env=dict(PYTHONPATH=self.psiphonpath))
+        finished = self.run(self.command, usePTY=1,
+                        path=self.psiphonpath,
+                        env=dict(PYTHONPATH=self.psiphonpath))
 
         def addResultToReport(result):
             log.debug("PsiphonTest: test_psiphon: addResultToReport")
@@ -101,10 +124,12 @@ connect(False)
             self.report['failure'] = handleAllFailures(failure)
             self.report['success'] = False
 
-        bootstrapped.addCallback(addResultToReport)
-        @bootstrapped.addCallback
+        self.bootstrapped.addCallback(addResultToReport)
+        
+        @self.bootstrapped.addCallback
         def send_sigint(r):
+            log.debug('PsiphonTest:send_sigint')
+#            self.processDirector.close()
             self.processDirector.transport.signalProcess('INT')
-            self.processDirector.close()
-        bootstrapped.addErrback(addFailureToReport)
-        yield bootstrapped
+        self.bootstrapped.addErrback(addFailureToReport)
+        yield self.bootstrapped

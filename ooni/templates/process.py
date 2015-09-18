@@ -66,16 +66,14 @@ class ProcessDirector(protocol.ProcessProtocol):
         self.stdout += data
         if self.shouldClose():
             self.close("condition_met")
-        if self.readHook:
-            self.readHook(self)
+        self.handleRead(data,  None)
 
     def errReceived(self, data):
         log.debug("STDERR: %s" % data)
         self.stderr += data
         if self.shouldClose():
             self.close("condition_met")
-        if self.readHook:
-            self.readHook(self)
+        self.handlRead(None,  data)
 
     def inConnectionLost(self):
         log.debug("inConnectionLost")
@@ -96,6 +94,10 @@ class ProcessDirector(protocol.ProcessProtocol):
         log.debug("Ended %s" % reason)
         self.finish("process_done")
 
+    # arturo suggestion
+    def handleRead(self,  stdout,  stderr=None):
+        log.debug("ProcessDirector: handleRead stdout: %s, stderr: %s" % (stdout,  stderr))
+
 
 class ProcessTest(NetTestCase):
     name = "Base Process Test"
@@ -103,6 +105,9 @@ class ProcessTest(NetTestCase):
 
     requiresRoot = False
     timeout = 5
+    
+    # arturo suggestion?
+    processDirector = None
 
     def _setUp(self):
         super(ProcessTest, self)._setUp()
@@ -121,9 +126,17 @@ class ProcessTest(NetTestCase):
         d = defer.Deferred()
         d.addCallback(self.processEnded, command)
         # XXX make this into a class attribute
-        self.processDirector = ProcessDirector(d, finished, self.timeout, readHook=readHook)
+
+        # arturo suggestion
+        self.processDirector = ProcessDirector(d, finished, self.timeout)
+        self.processDirector.handleRead = self.handleRead
+        
         reactor.spawnProcess(self.processDirector, command[0], command, usePTY=usePTY, path=path, env=env)
         return d
+
+    # arturo suggestion: handleRead as an abstract method
+    def handleRead(self,  stdout,  stderr=None):        
+        pass
 
     def stop(self):
         log.debug("ProcessTest: stop")
