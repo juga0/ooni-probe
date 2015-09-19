@@ -5,13 +5,14 @@ from ooni.utils import log
 
 
 class ProcessDirector(protocol.ProcessProtocol):
-    def __init__(self, d, finished=None, timeout=None, stdin=None):
+    def __init__(self, d, finished=None, timeout=None, stdin=None, readHook=None):
         self.d = d
         self.stderr = ""
         self.stdout = ""
         self.finished = finished
         self.timeout = timeout
         self.stdin = stdin
+        self.readHook = readHook
 
         self.timer = None
         self.exit_reason = None
@@ -59,13 +60,16 @@ class ProcessDirector(protocol.ProcessProtocol):
         self.stdout += data
         if self.shouldClose():
             self.close("condition_met")
+        if self.readHook:
+            self.readHook(self)
 
     def errReceived(self, data):
         log.debug("STDERR: %s" % data)
         self.stderr += data
         if self.shouldClose():
             self.close("condition_met")
-
+        if self.readHook:
+            self.readHook(self)
 
     def inConnectionLost(self):
         log.debug("inConnectionLost")
@@ -105,9 +109,9 @@ class ProcessTest(NetTestCase):
         }
         return result
 
-    def run(self, command, finished=None, env={}, path=None, usePTY=0):
+    def run(self, command, finished=None, env={}, path=None, usePTY=0, readHook=None):
         d = defer.Deferred()
         d.addCallback(self.processEnded, command)
         processDirector = ProcessDirector(d, finished, self.timeout)
-        reactor.spawnProcess(self.processDirector, command[0], command, env=env, path=path, usePTY=usePTY)
+        reactor.spawnProcess(self.processDirector, command[0], command, env=env, path=path, usePTY=usePTY, readHook=readHook)
         return d
