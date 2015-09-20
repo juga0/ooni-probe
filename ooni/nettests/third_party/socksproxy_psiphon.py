@@ -1,3 +1,7 @@
+import tempfile
+import stat
+import os
+
 from twisted.internet import defer, reactor
 from twisted.internet.endpoints import TCP4ClientEndpoint
 from twisted.web.client import readBody
@@ -37,11 +41,16 @@ class PsiphonTest(httpt.HTTPTest,  process.ProcessTest):
     version = "0.0.1"
     timeout = 20
     usageOptions = UsageOptions
-    # FIXME: url should not be required, so this should be eliminated
-    #requiredOptions = ['url']
 
-    # FIXME: even if we inherit first from HTTPTest, its _setUp is not
-    #  being called,only the one from ProcessTest
+    def _setUp(self):
+        # it is necessary to do this in _setUp instead of setUp
+        # because it needs to happen before HTTPTest's _setUp.
+        # incidentally, setting this option in setUp results in HTTPTest
+        # *saying* it is using this proxy while not actually using it.
+        log.debug('PiphonTest: _setUp: setting socksproxy')
+        self.localOptions['socksproxy'] = '127.0.0.1:1080'
+        super(PsiphonTest, self)._setUp()
+        
     def setUp(self):
         log.debug('PsiphonTest: setUp')
         log.debug(str(PsiphonTest.__mro__))
@@ -51,16 +60,8 @@ class PsiphonTest(httpt.HTTPTest,  process.ProcessTest):
             self.url = self.localOptions['url']
         else:
             # FIXME: use http://google.com?
-            self.url = 'https://wtfismyip.com/text'
-
-        #log.debug('PsiphonTest:setUp, socksproxy')
-        #log.debug(self.localOptions.get('socksproxy',  ''))
-
-        # FIXME: is this the correct way to pass socksproxy?
-        if self.localOptions['socksproxy']:
-            self.socksproxy = self.localOptions['socksproxy']
-        else:
-            self.socksproxy = '127.0.0.1:1080'
+            # self.url = 'https://wtfismyip.com/text'
+            self.url = 'https://check.torproject.org'
 
         if self.localOptions['psiphonpath']:
             self.psiphonpath = self.localOptions['psiphonpath']
@@ -80,11 +81,6 @@ class PsiphonTest(httpt.HTTPTest,  process.ProcessTest):
 from psi_client import connect
 connect(False)
 """
-
-        import tempfile
-        import stat
-        import os
-        # FIXME: import os globally?
         f = tempfile.NamedTemporaryFile(delete=False)
         f.write(x)
         f.close()
@@ -94,64 +90,47 @@ connect(False)
         log.debug('command: %s' % ''.join(self.command))
 
     def handleRead(self, stdout, stderr):
-        log.debug("PsiphonTest: test_psiphon: checkBootstrapped")
         if 'Press Ctrl-C to terminate.' in self.processDirector.stdout:
             if not self.bootstrapped.called:
+                log.debug("PsiphonTest: test_psiphon: calling bootstrapped.callback")
                 self.bootstrapped.callback(None)
 
-    @defer.inlineCallbacks
     def test_psiphon(self):
         log.debug('PsiphonTest: test_psiphon')
 
-        # FIXME: do this in a twisted way
-        import os.path
         if not os.path.exists(self.psiphonpath):
             log.debug('psiphon path does not exists, is it installed?')
-        else:
-            log.debug('psiphon path is correct')
+            self.report['success'] = False
+            self.report['psiphon_installed'] = False
+            #FIXME: this completes the test but ooni doesn't stop running, why?
+            return defer.succeed(None)
+
+        self.report['psiphon_installed'] = True
 
         finished = self.run(self.command, usePTY=1,
                         path=self.psiphonpath,
                         env=dict(PYTHONPATH=self.psiphonpath))
 
-        def addResultToReport(result):
-            # FIXME: to remove, this is not being used anymore
-            log.debug("PsiphonTest: test_psiphon: addResultToReport")
-            self.report['success'] = True
 
         def addFailureToReport(failure):
             log.debug("PsiphonTest: test_psiphon: addFailureToReport")
+            log.debug(repr(failure  ))
             self.report['failure'] = handleAllFailures(failure)
             self.report['success'] = False
 
-        def calldoRequest(result,  url):
+        def callDoRequest(_):
             return self.doRequest(self.url)
-        self.bootstrapped.addCallback(calldoRequest,  self.url)
-        # in case of not doing the  calldoRequest, can just call addResultToReport
-        #self.bootstrapped.addCallback(addResultToReport)
+        self.bootstrapped.addCallback(callDoRequest)
 
-        @self.bootstrapped.addCallback
-        def send_sigint(r):
-            log.debug('PsiphonTest:send_sigint')
-            # FIXME: is this needed?
-            # self.processDirector.close()
-            # FIXME: this is sending Ctrl-C to the python psiphon process, 
-            # but psiphon is not killing anymore 
+        def cleanup(_):
+            log.debug('PsiphonTest:cleanup')
             self.processDirector.transport.signalProcess('INT')
+            os.remove(self.command[0])
+            return finished
+            
         self.bootstrapped.addErrback(addFailureToReport)
-        yield self.bootstrapped
+        self.bootstrapped.addBoth(cleanup)
+        return self.bootstrapped
 
-    def processResponseBody(self, body):
-        # FIXME: this is not being called
-        # what should be added to the report?
-        log.debug("PsiphonTest: processResponseBody: addResultToReport")
-        self.report['body'] = body
-        self.report['success'] = True
-
-    def tearDown(selfs):
-        # FIXME: this is not being called
-        log.debug("PsiphonTest: tearDown")
-        import os
-        os.remove(self.command[0])      
 
 
